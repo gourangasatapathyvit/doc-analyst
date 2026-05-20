@@ -1,0 +1,44 @@
+[project]
+name = "doc-analyst-api"
+version = "0.1.0"
+description = "FastAPI backend for the document analyst"
+requires-python = ">=3.11"
+dependencies = [
+    "doc-analyst-core",
+    "doc-analyst-agents",
+    "doc-analyst-tools",
+    "doc-analyst-contracts",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "langgraph>=0.4",
+    "langgraph-supervisor>=0.0.10",
+    "langgraph-checkpoint-postgres>=2.0",
+    "langchain-openai>=0.3",
+    "langchain-community>=0.3",
+    "litellm==1.85.0",
+    "instructor>=1.7",
+    "tavily-python>=0.5",
+    "liteparse>=1.0",
+    "lancedb>=0.20",
+    "tiktoken>=0.8",
+    "structlog>=24.0",
+    "langfuse>=2.50",
+    "tenacity>=9.0",
+    "pybreaker>=1.2",
+    "python-dotenv>=1.0",
+    "python-multipart>=0.0.12",
+    "psycopg[binary]>=3.2",
+]
+
+[tool.uv.sources]
+doc-analyst-core = { workspace = true }
+doc-analyst-agents = { workspace = true }
+doc-analyst-tools = { workspace = true }
+doc-analyst-contracts = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

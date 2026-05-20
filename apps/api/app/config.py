@@ -1,0 +1,70 @@
+"""Application settings from environment variables."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from urllib.parse import quote_plus
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class Settings:
+    # Azure OpenAI
+    azure_openai_api_key: str = os.environ.get("AZURE_OPENAI_API_KEY", "")
+    azure_openai_endpoint: str = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    azure_openai_deployment_name: str = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "o4-mini")
+    azure_openai_api_version: str = os.environ.get(
+        "AZURE_OPENAI_API_VERSION", "2024-12-01-preview"
+    )
+
+    # Embeddings
+    embedding_endpoint: str = os.environ.get("EMBEDDING_ENDPOINT", "")
+    embedding_api_key: str = os.environ.get("EMBEDDING_API_KEY", "")
+    embedding_dimensions: int = int(os.environ.get("EMBEDDING_DIMENSIONS", "3072"))
+
+    # Tavily
+    tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
+
+    # PostgreSQL
+    db_host: str = os.environ.get("DB_HOST", "localhost")
+    db_port: str = os.environ.get("DB_PORT", "5432")
+    db_username: str = os.environ.get("DB_USERNAME", "admin")
+    db_password: str = os.environ.get("DB_PASSWORD", "admin@123")
+    langgraph_checkpoint_db: str = os.environ.get("LANGGRAPH_CHECKPOINT_DB", "langgraph_db")
+
+    # Server
+    uvicorn_host: str = os.environ.get("UVICORN_HOST", "localhost")
+    uvicorn_port: int = int(os.environ.get("UVICORN_PORT", "8080"))
+    cors_allowed_origins: list[str] = os.environ.get(
+        "CORS_ALLOWED_ORIGINS", "http://localhost:3000"
+    ).split(",")
+
+    # File management
+    upload_dir: Path = Path(os.environ.get("UPLOAD_DIR", "./uploads"))
+    lancedb_dir: Path = Path(os.environ.get("LANCEDB_DIR", "./lancedb_data"))
+    max_upload_size_mb: int = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "50"))
+    chunk_size: int = int(os.environ.get("CHUNK_SIZE", "500"))
+    chunk_overlap: int = int(os.environ.get("CHUNK_OVERLAP", "50"))
+
+    # Langfuse
+    langfuse_public_key: str = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+    langfuse_secret_key: str = os.environ.get("LANGFUSE_SECRET_KEY", "")
+    langfuse_host: str = os.environ.get("LANGFUSE_HOST", "http://localhost:3001")
+
+    # Logging
+    log_level: str = os.environ.get("LOG_LEVEL", "info")
+    env: str = os.environ.get("ENV", "dev")
+
+    @property
+    def pg_connection_string(self) -> str:
+        password = quote_plus(self.db_password)
+        return (
+            f"postgresql://{self.db_username}:{password}"
+            f"@{self.db_host}:{self.db_port}/{self.langgraph_checkpoint_db}"
+        )
+
+
+settings = Settings()

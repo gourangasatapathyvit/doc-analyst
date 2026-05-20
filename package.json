@@ -1,0 +1,10 @@
+{
+  "name": "doc-analyst",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @doc-analyst/web dev",
+    "build": "pnpm --filter @doc-analyst/web build",
+    "lint": "pnpm --filter @doc-analyst/web lint"
+  }
+}

@@ -1,0 +1,24 @@
+[project]
+name = "doc-analyst-tools"
+version = "0.1.0"
+description = "Reusable LangChain tool functions: PDF search, web search, analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "doc-analyst-core",
+    "langchain-core>=0.3",
+    "instructor>=1.7",
+    "tavily-python>=0.5",
+    "lancedb>=0.20",
+    "liteparse>=1.0",
+    "tiktoken>=0.8",
+]
+
+[tool.uv.sources]
+doc-analyst-core = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
