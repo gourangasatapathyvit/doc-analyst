@@ -44,6 +44,18 @@ class FileRepository:
         }
         return metadata
 
+    def update_pages(self, file_id: str, pages: int) -> None:
+        """Update the page count after parsing."""
+        entry = self._files.get(file_id)
+        if entry:
+            old = entry["metadata"]
+            entry["metadata"] = FileMetadata(
+                file_id=old.file_id,
+                filename=old.filename,
+                pages=pages,
+                size=old.size,
+            )
+
     def get_path(self, file_id: str) -> Path:
         entry = self._files.get(file_id)
         if entry is None:

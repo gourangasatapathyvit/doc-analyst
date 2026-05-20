@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import structlog
 from fastapi import APIRouter
@@ -53,7 +54,7 @@ async def stream_agent_response(request: ChatRequest):
             kind = event.get("event", "")
             name = event.get("name", "")
 
-            # Agent handoff — detect when a new agent starts
+            # Agent handoff
             if kind == "on_chain_start" and name in (
                 "pdf_agent",
                 "research_agent",
@@ -65,6 +66,24 @@ async def stream_agent_response(request: ChatRequest):
                     current_agent = name
                     yield _sse("agent_start", {"agent": name})
                     logger.info("agent_handoff", agent=name)
+
+            # Tool call start
+            elif kind == "on_tool_start":
+                tool_input = event.get("data", {}).get("input", {})
+                yield _sse("tool_start", {
+                    "tool": name,
+                    "agent": current_agent or "supervisor",
+                    "input": _clean_tool_input(name, tool_input),
+                })
+
+            # Tool call end
+            elif kind == "on_tool_end":
+                tool_output = event.get("data", {}).get("output", "")
+                yield _sse("tool_end", {
+                    "tool": name,
+                    "agent": current_agent or "supervisor",
+                    "output": _clean_tool_output(name, tool_output),
+                })
 
             # Streaming tokens
             elif kind == "on_chat_model_stream":
@@ -91,3 +110,50 @@ async def stream_agent_response(request: ChatRequest):
 
 def _sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+
+def _clean_tool_input(tool_name: str, raw_input) -> str:
+    """Clean tool input for display."""
+    # Transfer tools have no meaningful input
+    if tool_name.startswith("transfer_to_"):
+        target = tool_name.replace("transfer_to_", "")
+        return f"Routing to {target}"
+
+    # For tools with no meaningful input
+    if isinstance(raw_input, dict):
+        clean = {k: v for k, v in raw_input.items() if v}
+        if not clean:
+            return ""
+        return json.dumps(clean)
+
+    return _truncate(str(raw_input), 300)
+
+
+def _clean_tool_output(tool_name: str, raw_output) -> str:
+    """Clean tool output for display."""
+    # Transfer tools — just show the target
+    if tool_name.startswith("transfer_to_"):
+        target = tool_name.replace("transfer_to_", "").replace("_", " ")
+        return f"Transferred to {target}"
+
+    # Get the content string
+    if hasattr(raw_output, "content"):
+        output_str = str(raw_output.content)
+    else:
+        output_str = str(raw_output)
+
+    # If it looks like a Command(...) object, simplify it
+    if output_str.startswith("Command("):
+        # Extract goto target if present
+        goto_match = re.search(r"goto='(\w+)'", output_str)
+        if goto_match:
+            return f"Transferred to {goto_match.group(1).replace('_', ' ')}"
+        return "Agent handoff completed"
+
+    return _truncate(output_str, 500)
+
+
+def _truncate(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."

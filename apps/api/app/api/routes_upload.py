@@ -26,6 +26,7 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(...))
     logger.info("file_saved", filename=metadata.filename, file_id=metadata.file_id)
 
     parsed = await parse_service.parse(metadata.file_id, file_repo.get_path(metadata.file_id))
+    file_repo.update_pages(metadata.file_id, parsed.page_count)
     logger.info("file_parsed", filename=metadata.filename, pages=parsed.page_count)
 
     chunks_count = await vector_service.index_document(session_id, parsed, metadata)
