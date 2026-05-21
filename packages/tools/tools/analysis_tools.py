@@ -6,13 +6,15 @@ are available for future agents that need structured analysis output.
 
 from __future__ import annotations
 
-import os
+from typing import Any
 
 import instructor
 import litellm
 import structlog
 from langchain_core.tools import tool
 from pydantic import BaseModel
+
+from core.config import get_config
 
 logger = structlog.get_logger()
 
@@ -26,10 +28,10 @@ class ComparisonResult(BaseModel):
     verdict: str
 
 
-_instructor_client = None
+_instructor_client: Any = None
 
 
-def _get_instructor_client():
+def _get_instructor_client() -> Any:
     global _instructor_client
     if _instructor_client is None:
         _instructor_client = instructor.from_litellm(litellm.acompletion)
@@ -40,8 +42,9 @@ def _get_instructor_client():
 async def compare_topics(topic_a: str, topic_b: str, context: str = "") -> str:
     """Compare two topics using structured analysis. Returns a formatted comparison."""
     client = _get_instructor_client()
+    config = get_config()
 
-    model = f"azure/{os.environ.get('AZURE_OPENAI_DEPLOYMENT_NAME', 'o4-mini')}"
+    model = f"azure/{config.azure_openai_deployment_name}"
 
     try:
         result = await client.create(
@@ -58,9 +61,9 @@ async def compare_topics(topic_a: str, topic_b: str, context: str = "") -> str:
                     ),
                 }
             ],
-            api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
-            api_base=os.environ.get("AZURE_OPENAI_ENDPOINT"),
-            api_version=os.environ.get("AZURE_OPENAI_API_VERSION"),
+            api_key=config.azure_openai_api_key,
+            api_base=config.azure_openai_endpoint,
+            api_version=config.azure_openai_api_version,
         )
 
         output = f"## Comparison\n\n{result.summary}\n\n"

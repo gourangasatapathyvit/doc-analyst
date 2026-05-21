@@ -8,12 +8,12 @@ Usage:
 """
 from __future__ import annotations
 
-import os
 from typing import Protocol
 
 import litellm
 import structlog
 
+from core.config import get_config
 from core.retry import azure_ai_breaker, retryable
 
 logger = structlog.get_logger()
@@ -31,11 +31,12 @@ class EmbeddingStrategy(Protocol):
 class AzureOpenAIEmbedding:
     """Azure OpenAI text-embedding-3-large via litellm."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        config = get_config()
         self._model = "azure/text-embedding-3-large"
-        self._api_key = os.environ.get("EMBEDDING_API_KEY", "")
-        self._api_base = os.environ.get("EMBEDDING_ENDPOINT", "")
-        self._dims = int(os.environ.get("EMBEDDING_DIMENSIONS", "3072"))
+        self._api_key = config.embedding_api_key
+        self._api_base = config.embedding_endpoint
+        self._dims = config.embedding_dimensions
 
     @property
     def dimensions(self) -> int:

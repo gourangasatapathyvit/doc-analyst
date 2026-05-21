@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 
 from app.services.graph_service import get_supervisor_graph
-from app.services.langfuse_service import get_langfuse_handler
+from app.services.langfuse_service import get_langfuse_handler, flush_langfuse
 from contracts.requests import ChatRequest
 
 logger = structlog.get_logger()
@@ -37,12 +37,7 @@ async def stream_agent_response(request: ChatRequest):
     """Stream LangGraph events as SSE."""
     graph = get_supervisor_graph(request.session_id, request.file_ids)
 
-    # Langfuse tracing — one trace per chat request
-    langfuse_handler = get_langfuse_handler(
-        session_id=request.session_id,
-        user_id="user",
-        trace_name="chat",
-    )
+    langfuse_handler = get_langfuse_handler()
     config = {
         "configurable": {"thread_id": request.session_id},
         "callbacks": [langfuse_handler] if langfuse_handler else [],
@@ -81,19 +76,21 @@ async def stream_agent_response(request: ChatRequest):
             # Tool call start
             elif kind == "on_tool_start":
                 tool_input = event.get("data", {}).get("input", {})
+                clean_input = _clean_tool_input(name, tool_input)
                 yield _sse("tool_start", {
                     "tool": name,
                     "agent": current_agent or "supervisor",
-                    "input": _clean_tool_input(name, tool_input),
+                    "input": clean_input,
                 })
 
             # Tool call end
             elif kind == "on_tool_end":
                 tool_output = event.get("data", {}).get("output", "")
+                clean_output = _clean_tool_output(name, tool_output)
                 yield _sse("tool_end", {
                     "tool": name,
                     "agent": current_agent or "supervisor",
-                    "output": _clean_tool_output(name, tool_output),
+                    "output": clean_output,
                 })
 
             # Streaming tokens
@@ -116,6 +113,7 @@ async def stream_agent_response(request: ChatRequest):
         yield _sse("error", {"message": str(e)})
 
     yield _sse("done", {})
+    flush_langfuse()
     logger.info("chat_completed")
 
 
@@ -124,13 +122,10 @@ def _sse(event_type: str, data: dict) -> str:
 
 
 def _clean_tool_input(tool_name: str, raw_input) -> str:
-    """Clean tool input for display."""
-    # Transfer tools have no meaningful input
     if tool_name.startswith("transfer_to_"):
         target = tool_name.replace("transfer_to_", "")
         return f"Routing to {target}"
 
-    # For tools with no meaningful input
     if isinstance(raw_input, dict):
         clean = {k: v for k, v in raw_input.items() if v}
         if not clean:
@@ -141,21 +136,16 @@ def _clean_tool_input(tool_name: str, raw_input) -> str:
 
 
 def _clean_tool_output(tool_name: str, raw_output) -> str:
-    """Clean tool output for display."""
-    # Transfer tools — just show the target
     if tool_name.startswith("transfer_to_"):
         target = tool_name.replace("transfer_to_", "").replace("_", " ")
         return f"Transferred to {target}"
 
-    # Get the content string
     if hasattr(raw_output, "content"):
         output_str = str(raw_output.content)
     else:
         output_str = str(raw_output)
 
-    # If it looks like a Command(...) object, simplify it
     if output_str.startswith("Command("):
-        # Extract goto target if present
         goto_match = re.search(r"goto='(\w+)'", output_str)
         if goto_match:
             return f"Transferred to {goto_match.group(1).replace('_', ' ')}"

@@ -9,11 +9,12 @@ Usage:
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from langchain_openai import AzureChatOpenAI
 from langgraph_supervisor import create_supervisor
+
+from core.config import get_config
 
 SUPERVISOR_PROMPT = """You are a document analyst assistant that coordinates specialist agents.
 
@@ -36,19 +37,20 @@ def build_supervisor(
     agents: list[Any],
     file_context: str = "No files uploaded",
     agent_descriptions: str = "",
-):
+) -> Any:
     """Build the supervisor graph from a list of agents."""
+    config = get_config()
 
-    model = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "o4-mini")
+    model = config.azure_openai_deployment_name
 
     # o-series models (o3, o4-mini) don't support temperature parameter
     is_o_series = model.startswith("o") and model[1:2].isdigit()
 
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         azure_deployment=model,
-        azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", ""),
-        api_key=os.environ.get("AZURE_OPENAI_API_KEY", ""),
-        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
+        azure_endpoint=config.azure_openai_endpoint,
+        api_key=config.azure_openai_api_key,
+        api_version=config.azure_openai_api_version,
         model_name=model,
         streaming=True,
     )

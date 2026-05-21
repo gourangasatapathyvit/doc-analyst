@@ -1,6 +1,12 @@
-"""Langfuse tracing — creates callback handlers for LangGraph."""
+"""Langfuse tracing — v4 uses langfuse.langchain.CallbackHandler.
+
+Pass the handler via config={"callbacks": [handler]} to LangGraph.
+Auto-captures all LLM calls, tool calls, and agent handoffs.
+"""
 
 from __future__ import annotations
+
+from typing import Any
 
 import structlog
 
@@ -8,42 +14,63 @@ from app.config import settings
 
 logger = structlog.get_logger()
 
-_langfuse_available = False
+# Module-level imports with graceful fallback
+try:
+    from langfuse import get_client as _get_langfuse_client
+except ImportError:
+    _get_langfuse_client = None
 
 try:
-    from langfuse.callback import CallbackHandler as LangfuseCallbackHandler
-
-    _langfuse_available = True
+    from langfuse.langchain import CallbackHandler as _LangfuseCallbackHandler
 except ImportError:
-    logger.info("langfuse_not_installed", hint="pip install langfuse for LLM tracing")
+    _LangfuseCallbackHandler = None
 
 
-def get_langfuse_handler(
-    session_id: str = "",
-    user_id: str = "",
-    trace_name: str = "chat",
-) -> object | None:
-    """Create a Langfuse callback handler for a single chat request.
+def get_langfuse_handler() -> Any:
+    """Create a Langfuse LangChain callback handler.
 
     Returns None if Langfuse is not configured or not installed.
-    Each call creates a new handler = new trace in Langfuse.
+    Each call creates a new handler = new trace.
     """
-    if not _langfuse_available:
-        return None
-
     if not settings.langfuse_public_key or not settings.langfuse_secret_key:
         return None
 
+    if _LangfuseCallbackHandler is None:
+        return None
+
     try:
-        handler = LangfuseCallbackHandler(
-            public_key=settings.langfuse_public_key,
-            secret_key=settings.langfuse_secret_key,
-            host=settings.langfuse_host,
-            session_id=session_id,
-            user_id=user_id,
-            trace_name=trace_name,
-        )
+        handler = _LangfuseCallbackHandler()
         return handler
     except Exception as e:
         logger.warning("langfuse_handler_failed", error=str(e))
         return None
+
+
+def init_langfuse() -> None:
+    """Verify Langfuse connection at startup."""
+    if not settings.langfuse_public_key or not settings.langfuse_secret_key:
+        logger.info("langfuse_disabled", hint="No LANGFUSE keys in .env")
+        return
+
+    if _get_langfuse_client is None:
+        logger.warning("langfuse_init_failed", error="langfuse package not installed")
+        return
+
+    try:
+        lf = _get_langfuse_client()
+        ok = lf.auth_check()
+        logger.info("langfuse_initialized", auth_ok=ok, host=settings.langfuse_host)
+    except Exception as e:
+        logger.warning("langfuse_init_failed", error=str(e))
+
+
+def flush_langfuse() -> None:
+    """Flush pending traces."""
+    if _get_langfuse_client is None:
+        return
+
+    try:
+        lf = _get_langfuse_client()
+        lf.flush()
+    except Exception:
+        pass

@@ -26,8 +26,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import os
 import socket
+from typing import Any
 
 import pybreaker
 import structlog
@@ -42,16 +42,27 @@ from tenacity import (
 
 logger = structlog.get_logger()
 
-# ---------------------------------------------------------------------------
-# Retry defaults (all overridable via .env)
-# ---------------------------------------------------------------------------
-DEFAULT_MAX_ATTEMPTS: int = int(os.environ.get("RETRY_MAX_ATTEMPTS", "5"))
-DEFAULT_INITIAL_WAIT: float = float(os.environ.get("RETRY_INITIAL_WAIT", "3.0"))
-DEFAULT_MAX_WAIT: float = float(os.environ.get("RETRY_MAX_WAIT", "30.0"))
-DEFAULT_JITTER: float = float(os.environ.get("RETRY_JITTER", "5.0"))
 
-CB_FAIL_MAX: int = int(os.environ.get("CB_FAIL_MAX", "20"))
-CB_RESET_TIMEOUT: int = int(os.environ.get("CB_RESET_TIMEOUT", "60"))
+# ---------------------------------------------------------------------------
+# Retry defaults — lazy access so retry.py can be imported before set_config()
+# ---------------------------------------------------------------------------
+def _get_retry_config() -> tuple[int, float, float, float, int, int]:
+    """Return retry/CB settings from config, falling back to defaults."""
+    try:
+        from core.config import get_config
+
+        c = get_config()
+        return (
+            c.retry_max_attempts,
+            c.retry_initial_wait,
+            c.retry_max_wait,
+            c.retry_jitter,
+            c.cb_fail_max,
+            c.cb_reset_timeout,
+        )
+    except RuntimeError:
+        return 5, 3.0, 30.0, 5.0, 20, 60
+
 
 # ---------------------------------------------------------------------------
 # Layer 1 -- transient exception TYPES
@@ -135,7 +146,9 @@ TRANSIENT_RETRY_CONDITION = retry_if_exception_type(TRANSIENT_EXCEPTIONS) | retr
 # Circuit breakers
 # ---------------------------------------------------------------------------
 class _BreakerListener(pybreaker.CircuitBreakerListener):
-    def state_change(self, cb, old_state, new_state):
+    def state_change(
+        self, cb: pybreaker.CircuitBreaker, old_state: Any, new_state: Any
+    ) -> None:
         logger.warning(
             "circuit_breaker_state_change",
             breaker=cb.name,
@@ -152,9 +165,10 @@ def _should_exclude(exc: BaseException) -> bool:
 
 
 def _make_breaker(name: str) -> pybreaker.CircuitBreaker:
+    _, _, _, _, cb_fail_max, cb_reset_timeout = _get_retry_config()
     return pybreaker.CircuitBreaker(
-        fail_max=CB_FAIL_MAX,
-        reset_timeout=CB_RESET_TIMEOUT,
+        fail_max=cb_fail_max,
+        reset_timeout=cb_reset_timeout,
         exclude=[_should_exclude],
         listeners=[_listener],
         name=name,
@@ -169,8 +183,8 @@ db_breaker = _make_breaker("db")
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-def _before_sleep(label: str):
-    def _log(retry_state):
+def _before_sleep(label: str) -> Any:
+    def _log(retry_state: Any) -> None:
         logger.warning(
             "retry_attempt",
             label=label,
@@ -186,17 +200,18 @@ def _before_sleep(label: str):
 # Public API
 # ---------------------------------------------------------------------------
 def retryable(
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    max_attempts: int | None = None,
     label: str = "retry",
     breaker: pybreaker.CircuitBreaker | None = None,
-):
+) -> Any:
     """Decorator for sync/async functions with retry + optional circuit breaker."""
 
-    def decorator(fn):
+    def decorator(fn: Any) -> Any:
+        attempts, initial_wait, max_wait, jitter, _, _ = _get_retry_config()
         retried = retry(
-            stop=stop_after_attempt(max_attempts),
+            stop=stop_after_attempt(max_attempts if max_attempts is not None else attempts),
             wait=wait_exponential_jitter(
-                initial=DEFAULT_INITIAL_WAIT, max=DEFAULT_MAX_WAIT, jitter=DEFAULT_JITTER
+                initial=initial_wait, max=max_wait, jitter=jitter
             ),
             retry=TRANSIENT_RETRY_CONDITION,
             reraise=True,
@@ -210,18 +225,19 @@ def retryable(
 
 
 async def retry_call_async(
-    fn,
-    *args,
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    fn: Any,
+    *args: Any,
+    max_attempts: int | None = None,
     label: str = "retry",
     breaker: pybreaker.CircuitBreaker | None = None,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Any:
     """Retry an async callable you cannot decorate."""
+    attempts, initial_wait, max_wait, jitter, _, _ = _get_retry_config()
     async for attempt in AsyncRetrying(
-        stop=stop_after_attempt(max_attempts),
+        stop=stop_after_attempt(max_attempts if max_attempts is not None else attempts),
         wait=wait_exponential_jitter(
-            initial=DEFAULT_INITIAL_WAIT, max=DEFAULT_MAX_WAIT, jitter=DEFAULT_JITTER
+            initial=initial_wait, max=max_wait, jitter=jitter
         ),
         retry=TRANSIENT_RETRY_CONDITION,
         reraise=True,
@@ -233,5 +249,5 @@ async def retry_call_async(
             return await fn(*args, **kwargs)
 
 
-async def _do_async_call(fn, *args, **kwargs):
+async def _do_async_call(fn: Any, *args: Any, **kwargs: Any) -> Any:
     return await fn(*args, **kwargs)

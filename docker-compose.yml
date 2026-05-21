@@ -39,10 +39,12 @@ services:
     ports: ["3001:3000"]
     depends_on:
       langfuse-db:
-        condition: service_started
+        condition: service_healthy
       langfuse-redis:
         condition: service_started
       langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
         condition: service_started
     environment:
       - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
@@ -50,9 +52,11 @@ services:
       - SALT=my-langfuse-salt-change-in-prod
       - NEXTAUTH_URL=http://localhost:3001
       - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
-      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse-clickhouse:9000
-      - REDIS_HOST=langfuse-redis
-      - REDIS_PORT=6379
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://default:langfuse123@langfuse-clickhouse:9000
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=langfuse123
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
       - LANGFUSE_INIT_ORG_ID=sapiens
       - LANGFUSE_INIT_ORG_NAME=Sapiens
       - LANGFUSE_INIT_PROJECT_ID=doc-analyst
@@ -62,6 +66,52 @@ services:
       - LANGFUSE_INIT_USER_EMAIL=admin@sapiens.com
       - LANGFUSE_INIT_USER_PASSWORD=admin123
       - LANGFUSE_INIT_USER_NAME=Admin
+      - LANGFUSE_S3_EVENT_UPLOAD_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minioadmin
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=minioadmin
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENABLED=false
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse-media
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=auto
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minioadmin
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=minioadmin
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_started
+      langfuse-clickhouse:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://default:langfuse123@langfuse-clickhouse:9000
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=langfuse123
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
+      - LANGFUSE_S3_EVENT_UPLOAD_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minioadmin
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=minioadmin
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENABLED=false
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse-media
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=auto
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minioadmin
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=minioadmin
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
 
   langfuse-db:
     image: postgres:17
@@ -69,14 +119,36 @@ services:
       POSTGRES_DB: langfuse
       POSTGRES_USER: langfuse
       POSTGRES_PASSWORD: langfuse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
     volumes:
       - langfuse_pgdata:/var/lib/postgresql/data
 
   langfuse-redis:
     image: redis:7-alpine
 
+  langfuse-minio:
+    image: minio/minio
+    entrypoint: sh -c 'mkdir -p /data/langfuse /data/langfuse-media && minio server /data --console-address ":9001"'
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - langfuse_minio:/data
+
   langfuse-clickhouse:
     image: clickhouse/clickhouse-server:24
+    environment:
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=langfuse123
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
     volumes:
       - langfuse_clickhouse:/var/lib/clickhouse
 
@@ -84,3 +156,4 @@ volumes:
   pgdata:
   langfuse_pgdata:
   langfuse_clickhouse:
+  langfuse_minio:

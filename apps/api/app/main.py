@@ -9,17 +9,22 @@ from app.api.routes_agents import router as agents_router
 from app.api.routes_chat import router as chat_router
 from app.api.routes_health import router as health_router
 from app.api.routes_upload import router as upload_router
+from core.config import set_config
+
 from app.config import settings
 from app.logging_config import setup_logging
 from app.middleware.request_context import RequestContextMiddleware
 from app.services.checkpoint import init_checkpointer
 from app.services.graph_service import init_agents
+from app.services.langfuse_service import init_langfuse
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
+    set_config(settings)  # make config available to all packages
     setup_logging(settings.env)
+    init_langfuse()
     await init_checkpointer()
     init_agents()
     yield

@@ -6,7 +6,6 @@ VectorStoreIndex, SentenceSplitter, and LanceDBVectorStore.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import structlog
@@ -27,22 +26,12 @@ logger = structlog.get_logger()
 
 def _make_embed_model() -> AzureOpenAIEmbedding:
     """Create Azure OpenAI embedding model for LlamaIndex."""
-    # Extract deployment name from EMBEDDING_ENDPOINT URL
-    # e.g. ".../openai/deployments/text-embedding-3-large-migration" → "text-embedding-3-large-migration"
-    embed_endpoint = os.environ.get("EMBEDDING_ENDPOINT", "")
-    if "/deployments/" in embed_endpoint:
-        deployment = embed_endpoint.split("/deployments/")[-1].rstrip("/")
-    else:
-        deployment = os.environ.get("EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
-
-    endpoint = settings.azure_openai_endpoint
-
     return AzureOpenAIEmbedding(
         model="text-embedding-3-large",
-        azure_deployment=deployment,
+        azure_deployment=settings.embedding_deployment_name,
         api_key=settings.embedding_api_key,
-        azure_endpoint=endpoint,
-        api_version=os.environ.get("EMBEDDING_API_VERSION", "2024-02-01"),
+        azure_endpoint=settings.azure_openai_endpoint,
+        api_version=settings.embedding_api_version,
         dimensions=settings.embedding_dimensions,
     )
 
@@ -51,7 +40,7 @@ def _make_embed_model() -> AzureOpenAIEmbedding:
 class VectorService:
     """Manages per-session LlamaIndex indexes backed by LanceDB with hybrid search."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._embed_model = _make_embed_model()
         self._splitter = SentenceSplitter(
             chunk_size=settings.chunk_size,
@@ -154,7 +143,7 @@ class VectorService:
         query: str,
         session_id: str = "",
         top_k: int = 5,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Hybrid search (vector + BM25) via LlamaIndex query engine."""
         if not session_id:
             return []

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import os
-
 import structlog
 from langchain_core.tools import tool
 from tavily import AsyncTavilyClient
 
+from core.config import get_config
 from core.retry import retryable, tavily_breaker
 
 logger = structlog.get_logger()
@@ -18,8 +17,8 @@ _client: AsyncTavilyClient | None = None
 def _get_client() -> AsyncTavilyClient:
     global _client
     if _client is None:
-        api_key = os.environ.get("TAVILY_API_KEY", "")
-        _client = AsyncTavilyClient(api_key=api_key)
+        config = get_config()
+        _client = AsyncTavilyClient(api_key=config.tavily_api_key)
     return _client
 
 
@@ -29,7 +28,7 @@ async def tavily_search(query: str, max_results: int = 5) -> str:
     client = _get_client()
 
     @retryable(label="tavily_search", breaker=tavily_breaker)
-    async def _search():
+    async def _search() -> dict:
         return await client.search(query=query, max_results=max_results)
 
     try:

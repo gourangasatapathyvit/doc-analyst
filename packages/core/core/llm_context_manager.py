@@ -8,7 +8,6 @@ Usage:
 """
 from __future__ import annotations
 
-import os
 from typing import Optional
 
 import litellm
@@ -18,7 +17,15 @@ from core.patterns import singleton
 
 logger = structlog.get_logger()
 
-_DEFAULT_FILL_PCT = float(os.environ.get("LLM_FILL_PERCENTAGE", "0.5"))
+
+def _default_fill_pct() -> float:
+    """Get the default fill percentage from config, falling back to 0.5."""
+    try:
+        from core.config import get_config
+
+        return get_config().llm_fill_percentage
+    except RuntimeError:
+        return 0.5
 
 
 @singleton
@@ -30,7 +37,7 @@ class LLMContextManager:
     _OUTPUT_SAFETY_MARGIN = 0.8
     _OUTPUT_RESERVED_PCT = 0.10
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict[str, dict] = {}
 
     def _lookup(self, deployment_name: str) -> dict:
@@ -78,7 +85,7 @@ class LLMContextManager:
     def get_usable_tokens(
         self, deployment_name: str, fill_percentage: Optional[float] = None
     ) -> int:
-        pct = fill_percentage if fill_percentage is not None else _DEFAULT_FILL_PCT
+        pct = fill_percentage if fill_percentage is not None else _default_fill_pct()
         return int(self.get_max_input_tokens(deployment_name) * pct)
 
     def get_usable_output_tokens(
@@ -93,5 +100,5 @@ class LLMContextManager:
         reserved = int(max_output * res_pct)
         return max(0, int(max_output * margin) - reserved)
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         self._cache.clear()
