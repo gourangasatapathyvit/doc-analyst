@@ -93,6 +93,9 @@ packages/agents ──► packages/core     (patterns, retry)
                 ──► packages/tools    (tool functions)
 
 packages/tools  ──► packages/core     (patterns, retry, embedding)
+                ──► llama-index-core  (SentenceSplitter, VectorStoreIndex)
+                ──► llama-index-vector-stores-lancedb (LanceDBVectorStore, hybrid search)
+                ──► llama-index-embeddings-azure-openai (AzureOpenAIEmbedding)
 
 Future app ────► packages/agents      (reuse agents)
            ────► packages/core        (reuse patterns)
@@ -201,8 +204,13 @@ dependencies = [
     "langchain-core>=0.3",
     "instructor>=1.7",
     "tavily-python>=0.5",
-    "lancedb>=0.20",
     "liteparse>=1.0",
+    # LlamaIndex RAG stack (industry standard: LlamaIndex for retrieval, LangGraph for orchestration)
+    "llama-index-core>=0.12",
+    "llama-index-vector-stores-lancedb>=0.4",
+    "llama-index-embeddings-azure-openai>=0.3",
+    "lancedb>=0.20",
+    "pandas>=3.0",
 ]
 
 [tool.uv.sources]

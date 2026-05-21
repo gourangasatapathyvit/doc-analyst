@@ -8,9 +8,13 @@ dependencies = [
     "langchain-core>=0.3",
     "instructor>=1.7",
     "tavily-python>=0.5",
-    "lancedb>=0.20",
     "liteparse>=1.0",
-    "tiktoken>=0.8",
+    # LlamaIndex RAG stack
+    "llama-index-core>=0.12",
+    "llama-index-vector-stores-lancedb>=0.4",
+    "llama-index-embeddings-azure-openai>=0.3",
+    "lancedb>=0.20",
+    "pandas>=3.0.3",
 ]
 
 [tool.uv.sources]

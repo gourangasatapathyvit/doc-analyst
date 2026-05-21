@@ -22,8 +22,9 @@ The system is **domain-agnostic** — agents work with any document type. Domain
 | Structured Output| instructor                 | Pydantic-validated LLM responses. Pairs with litellm for typed agent outputs |
 | LLM              | Azure OpenAI (o4-mini)     | Available in .env, cost-effective         |
 | PDF Parsing      | LiteParse                  | Local, fast, layout-aware, no cloud dep   |
-| Vector Store     | LanceDB (local/embedded)   | Embedded, no server, per-session RAG index |
-| Embeddings       | Azure OpenAI text-embedding-3-large | Already configured in .env, 3072 dims |
+| RAG Framework    | LlamaIndex (llama-index-core) | Industry standard for RAG — SentenceSplitter, VectorStoreIndex, hybrid retriever. LangGraph handles orchestration, LlamaIndex handles retrieval |
+| Vector Store     | LanceDB via llama-index-vector-stores-lancedb | Embedded, no server, per-session RAG index with built-in hybrid search |
+| Embeddings       | Azure OpenAI text-embedding-3-large via llama-index-embeddings-azure-openai | 3072 dims, managed by LlamaIndex (batching, retry built-in) |
 | Web Search       | Tavily API                 | Already configured in .env                |
 | Checkpointing    | PostgreSQL (psycopg)       | Already running, conversation memory      |
 | Resilience       | tenacity + pybreaker       | Retry with exponential backoff + circuit breaker for external calls |
@@ -276,7 +277,9 @@ registry.register(math_agent, "Performs mathematical calculations and projection
 
 ### Overview
 
-When a user uploads a PDF, it goes through a pipeline: **parse → chunk → embed → index**. The agent never sees the full document text — it queries the vector index.
+When a user uploads a PDF, it goes through a pipeline: **parse → chunk → embed → index**. The agent never sees the full document text — it queries the vector index via LlamaIndex.
+
+**Industry standard pattern**: LlamaIndex for retrieval, LangGraph for orchestration.
 
 ```
 User uploads PDF
@@ -285,16 +288,19 @@ User uploads PDF
 ① LiteParse parses → spatial text per page
     │
     ▼
-② Chunker splits pages into ~500-token chunks with overlap
+② LlamaIndex SentenceSplitter → ~500-token chunks (sentence-boundary aware, with overlap)
     │
     ▼
-③ Azure OpenAI embeds each chunk (text-embedding-3-large, 3072 dims)
+③ LlamaIndex AzureOpenAIEmbedding → 3072-dim vectors (batched, with built-in retry)
     │
     ▼
-④ LanceDB stores chunks + embeddings in session table
+④ LlamaIndex VectorStoreIndex → LanceDBVectorStore (per-session, hybrid mode)
     │
     ▼
-⑤ pdf_agent queries LanceDB (top-K retrieval) → only relevant chunks go to LLM
+⑤ LanceDB FTS index created → BM25 keyword search on text column
+    │
+    ▼
+⑥ pdf_agent queries via LlamaIndex hybrid retriever (vector + BM25) → only relevant chunks go to LLM
 ```
 
 ### Upload Storage
@@ -311,63 +317,56 @@ uploads/
 ```
 lancedb_data/
 └── {session_id}/          # One LanceDB database per session
-    └── documents.lance/   # Single table with all chunks from all uploaded docs
+    └── documents.lance/   # Managed by LlamaIndex VectorStoreIndex
 ```
 
-### LanceDB Table Schema
+### LlamaIndex Integration
 
 ```python
-import lancedb
-from pydantic import BaseModel
+from llama_index.core import VectorStoreIndex, StorageContext
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import Document
+from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
+from llama_index.vector_stores.lancedb import LanceDBVectorStore
 
-class DocumentChunk(BaseModel):
-    id: str                  # "{file_id}_{page}_{chunk_idx}"
-    text: str                # Chunk text (~500 tokens)
-    vector: list[float]      # 3072-dim embedding from Azure OpenAI
-    file_id: str             # Source file ID
-    filename: str            # Original filename
-    page_number: int         # Source page number
-    chunk_index: int         # Chunk position within page
+# Embedding model
+embed_model = AzureOpenAIEmbedding(
+    model="text-embedding-3-large",
+    azure_deployment="text-embedding-3-large-migration",  # from EMBEDDING_ENDPOINT
+    dimensions=3072,
+)
+
+# Chunking — sentence-boundary aware (not mid-word like manual tiktoken)
+splitter = SentenceSplitter(chunk_size=500, chunk_overlap=50)
+
+# Vector store — per-session LanceDB with hybrid search enabled
+vector_store = LanceDBVectorStore(uri=f"lancedb_data/{session_id}", query_type="hybrid")
+index = VectorStoreIndex.from_vector_store(vector_store=vector_store, embed_model=embed_model)
+
+# Ingest: pages → Documents → nodes → index
+documents = [Document(text=page_text, metadata={"file_id": ..., "page_number": ...})]
+nodes = splitter.get_nodes_from_documents(documents)
+index.insert_nodes(nodes)
+
+# Search: hybrid retriever (vector + BM25)
+retriever = index.as_retriever(similarity_top_k=5, vector_store_query_mode="hybrid")
+results = retriever.retrieve("premium payment options")
 ```
 
 ### Chunking Strategy
 
-```python
-# Split each page's text into overlapping chunks
-CHUNK_SIZE = 500       # tokens
-CHUNK_OVERLAP = 50     # tokens overlap between consecutive chunks
+Uses LlamaIndex `SentenceSplitter` instead of manual tiktoken tokenizer:
+- `chunk_size = 500` tokens
+- `chunk_overlap = 50` tokens
+- Splits at sentence boundaries — never cuts mid-sentence
+- Each node carries metadata: `file_id`, `filename`, `page_number`, `chunk_index`
 
-# Each chunk carries metadata: file_id, filename, page_number, chunk_index
-# This allows the agent to cite sources precisely
-```
+### Hybrid Search
 
-### Embedding
-
-Uses the Azure OpenAI embedding endpoint already in `.env`:
-- Model: `text-embedding-3-large`
-- Dimensions: 3072
-- Endpoint: `EMBEDDING_ENDPOINT`
-- API Key: `EMBEDDING_API_KEY`
-
-Custom LanceDB embedding function wraps the Azure OpenAI client (no native Azure support in LanceDB — we register a custom `AzureOpenAIEmbeddings` function).
-
-### Session Lifecycle
-
-```python
-# On upload: create/append to session's LanceDB table
-db = lancedb.connect(f"lancedb_data/{session_id}")
-table = db.create_table("documents", data=chunks)   # first upload
-table.add(new_chunks)                                # subsequent uploads
-
-# On search: query the table
-results = table.search(query_embedding).limit(top_k).to_pandas()
-
-# On file delete: remove chunks by file_id
-table.delete(f"file_id = '{file_id}'")
-
-# On session end / cleanup: delete the session directory
-shutil.rmtree(f"lancedb_data/{session_id}")
-```
+LanceDB's built-in hybrid mode combines:
+- **Vector search** — cosine similarity via 3072-dim embeddings
+- **BM25 full-text search** — keyword matching via FTS index on `text` column
+- Results merged automatically by LanceDB with fallback to vector-only if FTS unavailable
 
 ### Parse Cache (for `get_page` tool)
 
@@ -876,7 +875,7 @@ psycopg[binary] >= 3.2
 
 **packages/core**: `litellm==1.85.0`, `tenacity`, `pybreaker`, `structlog`, `python-dotenv`
 **packages/agents**: `langgraph`, `langgraph-supervisor`, `langchain-openai`
-**packages/tools**: `instructor`, `tavily-python`, `lancedb`, `liteparse`, `langchain-core`
+**packages/tools**: `instructor`, `tavily-python`, `liteparse`, `langchain-core`, `llama-index-core`, `llama-index-vector-stores-lancedb`, `llama-index-embeddings-azure-openai`, `lancedb`, `pandas`
 **packages/contracts**: `pydantic`
 
 ---
@@ -885,7 +884,7 @@ psycopg[binary] >= 3.2
 
 ### v1 — Core (Current Scope)
 
-Everything in sections 1–15 above. Manual prompts, LangGraph supervisor, streaming, 3 agents, litellm + instructor, design patterns (@singleton, @retryable, repository, strategy, factory), structlog + Langfuse observability.
+Everything in sections 1–15 above. LlamaIndex RAG (SentenceSplitter + LanceDBVectorStore + hybrid search), LangGraph supervisor, streaming, 3 agents, litellm + instructor, design patterns (@singleton, @retryable, repository, strategy, factory), structlog + Langfuse observability.
 
 ### v2 — DSPy Prompt Optimization
 
