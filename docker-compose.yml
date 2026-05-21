@@ -33,5 +33,54 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # ── Langfuse (self-hosted LLM observability) ──
+  langfuse:
+    image: langfuse/langfuse:3
+    ports: ["3001:3000"]
+    depends_on:
+      langfuse-db:
+        condition: service_started
+      langfuse-redis:
+        condition: service_started
+      langfuse-clickhouse:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      - NEXTAUTH_SECRET=my-langfuse-secret-key-change-in-prod
+      - SALT=my-langfuse-salt-change-in-prod
+      - NEXTAUTH_URL=http://localhost:3001
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse-clickhouse:9000
+      - REDIS_HOST=langfuse-redis
+      - REDIS_PORT=6379
+      - LANGFUSE_INIT_ORG_ID=sapiens
+      - LANGFUSE_INIT_ORG_NAME=Sapiens
+      - LANGFUSE_INIT_PROJECT_ID=doc-analyst
+      - LANGFUSE_INIT_PROJECT_NAME=Document Analyst
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-local-doc-analyst
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-local-doc-analyst
+      - LANGFUSE_INIT_USER_EMAIL=admin@sapiens.com
+      - LANGFUSE_INIT_USER_PASSWORD=admin123
+      - LANGFUSE_INIT_USER_NAME=Admin
+
+  langfuse-db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+    volumes:
+      - langfuse_pgdata:/var/lib/postgresql/data
+
+  langfuse-redis:
+    image: redis:7-alpine
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24
+    volumes:
+      - langfuse_clickhouse:/var/lib/clickhouse
+
 volumes:
   pgdata:
+  langfuse_pgdata:
+  langfuse_clickhouse:

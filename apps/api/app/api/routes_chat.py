@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 
 from app.services.graph_service import get_supervisor_graph
+from app.services.langfuse_service import get_langfuse_handler
 from contracts.requests import ChatRequest
 
 logger = structlog.get_logger()
@@ -35,7 +36,17 @@ async def chat(request: ChatRequest):
 async def stream_agent_response(request: ChatRequest):
     """Stream LangGraph events as SSE."""
     graph = get_supervisor_graph(request.session_id, request.file_ids)
-    config = {"configurable": {"thread_id": request.session_id}}
+
+    # Langfuse tracing — one trace per chat request
+    langfuse_handler = get_langfuse_handler(
+        session_id=request.session_id,
+        user_id="user",
+        trace_name="chat",
+    )
+    config = {
+        "configurable": {"thread_id": request.session_id},
+        "callbacks": [langfuse_handler] if langfuse_handler else [],
+    }
 
     logger.info(
         "chat_started",
