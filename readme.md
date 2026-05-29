@@ -1,0 +1,1 @@
+wsl bash -c "cd /mnt/c/spns/learn/doc-analyst && docker compose up --force-recreate langfuse langfuse-worker"
